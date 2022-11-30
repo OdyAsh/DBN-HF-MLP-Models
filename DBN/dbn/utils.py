@@ -1,5 +1,5 @@
 import numpy as np
-
+import cupy as cp
 
 def batch_generator(batch_size, data, labels=None):
     """
@@ -8,11 +8,11 @@ def batch_generator(batch_size, data, labels=None):
     :param labels: array-like, shape = (n_samples, )
     :return:
     """
-    n_batches = int(np.ceil(len(data) / float(batch_size)))
-    idx = np.random.permutation(len(data))
-    data_shuffled = data[idx]
+    n_batches = int(cp.ceil(len(data) / float(batch_size)))
+    idx = cp.random.permutation(len(data))
+    data_shuffled = data[idx.get()]
     if labels is not None:
-        labels_shuffled = labels[idx]
+        labels_shuffled = labels[idx.get()]
     for i in range(n_batches):
         start = i * batch_size
         end = start + batch_size
@@ -29,7 +29,7 @@ def to_categorical(labels, num_classes):
     :param labels: array-like, shape = (n_samples, )
     :return:
     """
-    new_labels = np.zeros([len(labels), num_classes])
+    new_labels = cp.zeros([len(labels), num_classes])
     label_to_idx_map, idx_to_label_map = dict(), dict()
     idx = 0
     for i, label in enumerate(labels):

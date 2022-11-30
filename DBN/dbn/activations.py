@@ -1,7 +1,8 @@
 from abc import ABCMeta, abstractmethod
 
 import numpy as np
-
+import cupy as cp
+cp.random.seed(42)
 
 class ActivationFunction(object):
     """
@@ -26,7 +27,10 @@ class SigmoidActivationFunction(ActivationFunction):
         :param x: array-like, shape = (n_features, )
         :return:
         """
-        return 1 / (1.0 + np.exp(-x))
+        return cp.exp(-cp.logaddexp(0., -x)) # using cupy to avoid overflow. Source: https://www.bragitoff.com/2021/12/efficient-implementation-of-sigmoid-activation-function-and-its-derivative-gradient-in-python/ 
+        # why overflow happens in the first place? Answer: https://stackoverflow.com/questions/23128401/overflow-error-in-neural-networks-implementation#:~:text=Why%20does%20the%20Sigmoid%20function%20overflow%3F
+        
+
 
     @classmethod
     def prime(cls, x):
@@ -46,7 +50,7 @@ class ReLUActivationFunction(ActivationFunction):
         :param x: array-like, shape = (n_features, )
         :return:
         """
-        return np.maximum(np.zeros(x.shape), x)
+        return cp.maximum(cp.zeros(x.shape), x)
 
     @classmethod
     def prime(cls, x):
@@ -66,7 +70,7 @@ class TanhActivationFunction(ActivationFunction):
         :param x: array-like, shape = (n_features, )
         :return:
         """
-        return np.tanh(x)
+        return cp.tanh(x)
 
     @classmethod
     def prime(cls, x):

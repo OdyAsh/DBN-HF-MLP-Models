@@ -1,4 +1,3 @@
-x.pkl
+x*.pkl
 xf.pkl
-y.pkl
-.venv
+y*.pkl

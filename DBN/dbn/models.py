@@ -1,14 +1,14 @@
 from abc import ABCMeta, abstractmethod
 
-import numpy as np
+import cupy as cp
 from scipy.stats import truncnorm
 from sklearn.base import BaseEstimator, TransformerMixin, ClassifierMixin, RegressorMixin
 
 from .activations import SigmoidActivationFunction, ReLUActivationFunction
 from .utils import batch_generator
 
-from numpy.random import seed
-seed(42) # Added to make the generation consistant in multiple runs of the code
+from cupy.random import seed
+seed(42) # Added as an attempt to make the generation consistant in multiple runs of the code 
 
 class BaseModel(object):
     def save(self, save_path):
@@ -57,15 +57,15 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         # Initialize RBM parameters
         self.n_visible_units = X.shape[1]
         if self.activation_function == 'sigmoid':
-            self.W = np.random.randn(self.n_hidden_units, self.n_visible_units) / np.sqrt(self.n_visible_units)
-            self.c = np.random.randn(self.n_hidden_units) / np.sqrt(self.n_visible_units)
-            self.b = np.random.randn(self.n_visible_units) / np.sqrt(self.n_visible_units)
+            self.W = cp.random.randn(self.n_hidden_units, self.n_visible_units) / cp.sqrt(self.n_visible_units)
+            self.c = cp.random.randn(self.n_hidden_units) / cp.sqrt(self.n_visible_units)
+            self.b = cp.random.randn(self.n_visible_units) / cp.sqrt(self.n_visible_units)
             self._activation_function_class = SigmoidActivationFunction
         elif self.activation_function == 'relu':
-            self.W = truncnorm.rvs(-0.2, 0.2, size=[self.n_hidden_units, self.n_visible_units]) / np.sqrt(
+            self.W = cp.array(truncnorm.rvs(-0.2, 0.2, size=[self.n_hidden_units, self.n_visible_units])) / cp.sqrt(
                 self.n_visible_units)
-            self.c = np.full(self.n_hidden_units, 0.1) / np.sqrt(self.n_visible_units)
-            self.b = np.full(self.n_visible_units, 0.1) / np.sqrt(self.n_visible_units)
+            self.c = cp.full(self.n_hidden_units, 0.1) / cp.sqrt(self.n_visible_units)
+            self.b = cp.full(self.n_visible_units, 0.1) / cp.sqrt(self.n_visible_units)
             self._activation_function_class = ReLUActivationFunction
         else:
             raise ValueError("Invalid activation function.")
@@ -101,12 +101,12 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :param _data: array-like, shape = (n_samples, n_features)
         :return:
         """
-        accum_delta_W = np.zeros(self.W.shape)
-        accum_delta_b = np.zeros(self.b.shape)
-        accum_delta_c = np.zeros(self.c.shape)
+        accum_delta_W = cp.zeros(self.W.shape)
+        accum_delta_b = cp.zeros(self.b.shape)
+        accum_delta_c = cp.zeros(self.c.shape)
         for iteration in range(1, self.n_epochs + 1):
-            idx = np.random.permutation(len(_data))
-            data = _data[idx]
+            idx = cp.random.permutation(len(_data))
+            data = _data[idx.get()]
             for batch in batch_generator(self.batch_size, data):
                 accum_delta_W[:] = .0
                 accum_delta_b[:] = .0
@@ -130,7 +130,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :return:
         """
         v_0 = vector_visible_units
-        v_t = np.array(v_0)
+        v_t = cp.array(v_0)
 
         # Sampling
         for t in range(self.contrastive_divergence_iter):
@@ -141,7 +141,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         v_k = v_t
         h_0 = self._compute_hidden_units(v_0)
         h_k = self._compute_hidden_units(v_k)
-        delta_W = np.outer(h_0, v_0) - np.outer(h_k, v_k)
+        delta_W = cp.outer(h_0, v_0) - cp.outer(h_k, v_k)
         delta_b = v_0 - v_k
         delta_c = h_0 - h_k
 
@@ -154,7 +154,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :return:
         """
         hidden_units = self._compute_hidden_units(vector_visible_units)
-        return (np.random.random_sample(len(hidden_units)) < hidden_units).astype(np.int64)
+        return (cp.random.random_sample(len(hidden_units)) < hidden_units).astype(cp.int64)
 
     def _sample_visible_units(self, vector_hidden_units):
         """
@@ -163,7 +163,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :return:
         """
         visible_units = self._compute_visible_units(vector_hidden_units)
-        return (np.random.random_sample(len(visible_units)) < visible_units).astype(np.int64)
+        return (cp.random.random_sample(len(visible_units)) < visible_units).astype(cp.int64)
 
     def _compute_hidden_units(self, vector_visible_units):
         """
@@ -171,9 +171,9 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :param vector_visible_units: array-like, shape = (n_features, )
         :return:
         """
-        v = np.expand_dims(vector_visible_units, 0)
-        h = np.squeeze(self._compute_hidden_units_matrix(v))
-        return np.array([h]) if not h.shape else h
+        v = cp.expand_dims(vector_visible_units, 0)
+        h = cp.squeeze(self._compute_hidden_units_matrix(v))
+        return cp.array([h]) if not h.shape else h
 
     def _compute_hidden_units_matrix(self, matrix_visible_units):
         """
@@ -181,8 +181,8 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :param matrix_visible_units: array-like, shape = (n_samples, n_features)
         :return:
         """
-        return np.transpose(self._activation_function_class.function(
-            np.dot(self.W, np.transpose(matrix_visible_units)) + self.c[:, np.newaxis]))
+        return cp.transpose(self._activation_function_class.function(
+            cp.dot(self.W, cp.transpose(matrix_visible_units)) + self.c[:, cp.newaxis]))
 
     def _compute_visible_units(self, vector_hidden_units):
         """
@@ -190,9 +190,9 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :param vector_hidden_units: array-like, shape = (n_features, )
         :return:
         """
-        h = np.expand_dims(vector_hidden_units, 0)
-        v = np.squeeze(self._compute_visible_units_matrix(h))
-        return np.array([v]) if not v.shape else v
+        h = cp.expand_dims(vector_hidden_units, 0)
+        v = cp.squeeze(self._compute_visible_units_matrix(h))
+        return cp.array([v]) if not v.shape else v
 
     def _compute_visible_units_matrix(self, matrix_hidden_units):
         """
@@ -200,7 +200,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :param matrix_hidden_units: array-like, shape = (n_samples, n_features)
         :return:
         """
-        return self._activation_function_class.function(np.dot(matrix_hidden_units, self.W) + self.b[np.newaxis, :])
+        return self._activation_function_class.function(cp.dot(matrix_hidden_units, self.W) + self.b[cp.newaxis, :])
 
     def _compute_free_energy(self, vector_visible_units):
         """
@@ -209,7 +209,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         :return:
         """
         v = vector_visible_units
-        return - np.dot(self.b, v) - np.sum(np.log(1 + np.exp(np.dot(self.W, v) + self.c)))
+        return - cp.dot(self.b, v) - cp.sum(cp.log(1 + cp.exp(cp.dot(self.W, v) + self.c)))
 
     def _compute_reconstruction_error(self, data):
         """
@@ -219,7 +219,7 @@ class BinaryRBM(BaseEstimator, TransformerMixin, BaseModel):
         """
         data_transformed = self.transform(data)
         data_reconstructed = self._reconstruct(data_transformed)
-        return np.mean(np.sum((data_reconstructed - data) ** 2, 1))
+        return cp.mean(cp.sum((data_reconstructed - data) ** 2, 1))
 
 
 class UnsupervisedDBN(BaseEstimator, TransformerMixin, BaseModel):
@@ -346,7 +346,7 @@ class AbstractSupervisedDBN(BaseEstimator, BaseModel):
         :return:
         """
         if len(X.shape) == 1:  # It is a single sample
-            X = np.expand_dims(X, 0)
+            X = cp.expand_dims(X, 0)
         transformed_data = self.transform(X)
         predicted_data = self._compute_output_units_matrix(transformed_data)
         return predicted_data
@@ -401,14 +401,14 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
         """
         input_data = sample
         if self.dropout_p > 0:
-            r = np.random.binomial(1, self.p, len(input_data))
+            r = cp.random.binomial(1, self.p, len(input_data))
             input_data *= r
         layers_activation = list()
 
         for rbm in self.unsupervised_dbn.rbm_layers:
             input_data = rbm.transform(input_data)
             if self.dropout_p > 0:
-                r = np.random.binomial(1, self.p, len(input_data))
+                r = cp.random.binomial(1, self.p, len(input_data))
                 input_data *= r
             layers_activation.append(input_data)
 
@@ -426,17 +426,17 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
         :return:
         """
         if self.verbose:
-            matrix_error = np.zeros([len(_data), self.num_classes])
+            matrix_error = cp.zeros([len(_data), self.num_classes])
         num_samples = len(_data)
-        accum_delta_W = [np.zeros(rbm.W.shape) for rbm in self.unsupervised_dbn.rbm_layers]
-        accum_delta_W.append(np.zeros(self.W.shape))
-        accum_delta_bias = [np.zeros(rbm.c.shape) for rbm in self.unsupervised_dbn.rbm_layers]
-        accum_delta_bias.append(np.zeros(self.b.shape))
+        accum_delta_W = [cp.zeros(rbm.W.shape) for rbm in self.unsupervised_dbn.rbm_layers]
+        accum_delta_W.append(cp.zeros(self.W.shape))
+        accum_delta_bias = [cp.zeros(rbm.c.shape) for rbm in self.unsupervised_dbn.rbm_layers]
+        accum_delta_bias.append(cp.zeros(self.b.shape))
 
         for iteration in range(1, self.n_iter_backprop + 1):
-            idx = np.random.permutation(len(_data))
-            data = _data[idx]
-            labels = _labels[idx]
+            idx = cp.random.permutation(len(_data))
+            data = _data[idx.get()]
+            labels = _labels[idx.get()]
             i = 0
             for batch_data, batch_labels in batch_generator(self.batch_size, data, labels):
                 # Clear arrays
@@ -467,7 +467,7 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
                 self.b -= self.learning_rate * (accum_delta_bias[layer] / self.batch_size)
 
             if self.verbose:
-                error = np.mean(np.sum(matrix_error, 1))
+                error = cp.mean(cp.sum(matrix_error, 1))
                 print(">> Epoch %d finished \tANN training loss %f" % (iteration, error))
 
     def _backpropagation(self, input_vector, label):
@@ -497,7 +497,7 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
         for layer in layer_idx:
             neuron_activations = layers_activation[layer]
             W = list_layer_weights[layer + 1]
-            delta = np.dot(delta_previous_layer, W) * self.unsupervised_dbn.rbm_layers[
+            delta = cp.dot(delta_previous_layer, W) * self.unsupervised_dbn.rbm_layers[
                 layer]._activation_function_class.prime(neuron_activations)
             deltas.append(delta)
             delta_previous_layer = delta
@@ -510,7 +510,7 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
         for layer in range(len(list_layer_weights)):
             neuron_activations = layers_activation[layer]
             delta = deltas[layer]
-            gradient_W = np.outer(delta, neuron_activations)
+            gradient_W = cp.outer(delta, neuron_activations)
             layer_gradient_weights.append(gradient_W)
             layer_gradient_bias.append(delta)
 
@@ -525,9 +525,9 @@ class NumPyAbstractSupervisedDBN(AbstractSupervisedDBN):
         """
         self.num_classes = self._determine_num_output_neurons(_labels)
         n_hidden_units_previous_layer = self.unsupervised_dbn.rbm_layers[-1].n_hidden_units
-        self.W = np.random.randn(self.num_classes, n_hidden_units_previous_layer) / np.sqrt(
+        self.W = cp.random.randn(self.num_classes, n_hidden_units_previous_layer) / cp.sqrt(
             n_hidden_units_previous_layer)
-        self.b = np.random.randn(self.num_classes) / np.sqrt(n_hidden_units_previous_layer)
+        self.b = cp.random.randn(self.num_classes) / cp.sqrt(n_hidden_units_previous_layer)
 
         labels = self._transform_labels_to_network_format(_labels)
 
@@ -574,10 +574,11 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param labels: array-like, shape = (n_samples, )
         :return:
         """
-        new_labels = np.zeros([len(labels), self.num_classes])
+        new_labels = cp.zeros([len(labels), self.num_classes])
         self.label_to_idx_map, self.idx_to_label_map = dict(), dict()
         idx = 0
         for i, label in enumerate(labels):
+            label = label.item() # converts from cupy (cp) ndarray to a scalar int value
             if label not in self.label_to_idx_map:
                 self.label_to_idx_map[label] = idx
                 self.idx_to_label_map[idx] = label
@@ -591,7 +592,7 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param indexes: array-like, shape = (n_samples, )
         :return:
         """
-        return list(map(lambda idx: self.idx_to_label_map[idx], indexes))
+        return list(map(lambda idx: self.idx_to_label_map[idx.item()], indexes))
 
     def _compute_output_units(self, vector_visible_units):
         """
@@ -600,11 +601,11 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :return:
         """
         v = vector_visible_units
-        scores = np.dot(self.W, v) + self.b
+        scores = cp.dot(self.W, v) + self.b
         # get unnormalized probabilities
-        exp_scores = np.exp(scores)
+        exp_scores = cp.exp(scores)
         # normalize them for each example
-        return exp_scores / np.sum(exp_scores)
+        return exp_scores / cp.sum(exp_scores)
 
     def _compute_output_units_matrix(self, matrix_visible_units):
         """
@@ -612,9 +613,9 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param matrix_visible_units: shape = (n_samples, n_features)
         :return:
         """
-        matrix_scores = np.transpose(np.dot(self.W, np.transpose(matrix_visible_units)) + self.b[:, np.newaxis])
-        exp_scores = np.exp(matrix_scores)
-        return exp_scores / np.expand_dims(np.sum(exp_scores, axis=1), 1)
+        matrix_scores = cp.transpose(cp.dot(self.W, cp.transpose(matrix_visible_units)) + self.b[:, cp.newaxis])
+        exp_scores = cp.exp(matrix_scores)
+        return exp_scores / cp.expand_dims(cp.sum(exp_scores, axis=1), 1)
 
     def _compute_output_layer_delta(self, label, predicted):
         """
@@ -623,8 +624,8 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param predicted: array-like, shape = (n_features, )
         :return:
         """
-        dscores = np.array(predicted)
-        dscores[np.where(label == 1)] -= 1
+        dscores = cp.array(predicted)
+        dscores[cp.where(label == 1)] -= 1
         return dscores
 
     def predict_proba(self, X):
@@ -643,7 +644,7 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :return:
         """
         if len(X.shape) == 1:  # It is a single sample
-            X = np.expand_dims(X, 0)
+            X = cp.expand_dims(X, 0)
 
         predicted_probs = self.predict_proba(X)
 
@@ -661,7 +662,7 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
 
     def predict(self, X):
         probs = self.predict_proba(X)
-        indexes = np.argmax(probs, axis=1)
+        indexes = cp.argmax(probs, axis=1)
         return self._transform_network_format_to_labels(indexes)
 
     def _determine_num_output_neurons(self, labels):
@@ -670,7 +671,7 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param labels: shape = (n_samples, )
         :return:
         """
-        return len(np.unique(labels))
+        return len(cp.unique(labels))
 
     def _compute_loss(self, probs, label):
         """
@@ -679,7 +680,7 @@ class SupervisedDBNClassification(NumPyAbstractSupervisedDBN, ClassifierMixin):
         :param label:
         :return:
         """
-        return -np.log(probs[np.where(label == 1)])
+        return -cp.log(probs[cp.where(label == 1)])
 
 
 class SupervisedDBNRegression(NumPyAbstractSupervisedDBN, RegressorMixin):
@@ -702,7 +703,7 @@ class SupervisedDBNRegression(NumPyAbstractSupervisedDBN, RegressorMixin):
         :return:
         """
         v = vector_visible_units
-        return np.dot(self.W, v) + self.b
+        return cp.dot(self.W, v) + self.b
 
     def _compute_output_units_matrix(self, matrix_visible_units):
         """
@@ -710,7 +711,7 @@ class SupervisedDBNRegression(NumPyAbstractSupervisedDBN, RegressorMixin):
         :param matrix_visible_units: shape = (n_samples, n_features)
         :return:
         """
-        return np.transpose(np.dot(self.W, np.transpose(matrix_visible_units)) + self.b[:, np.newaxis])
+        return cp.transpose(cp.dot(self.W, cp.transpose(matrix_visible_units)) + self.b[:, cp.newaxis])
 
     def _compute_output_layer_delta(self, label, predicted):
         """
